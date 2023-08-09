@@ -21,6 +21,7 @@ contract Recruitment  is Ownable , ReentrancyGuard {
     event DepositCompleted(address indexed sender, uint256 amount);
     event ReferralScoreSubmitted(address senderAddress, address referrerWallet, uint256 score); 
     event CompanyScoreSubmitted(address senderAddress, address companyAddress, uint256 score);
+    event ReferCandidateSuccess(address indexed sender, address indexed candidateAddress, uint256 indexed jobId);
 
 
     /**
@@ -135,7 +136,7 @@ contract Recruitment  is Ownable , ReentrancyGuard {
      * @param email email of the candidate
      */
    function registerCandidate(string memory email)  external {
-    FrontDoorStructs.Candidate memory candidate = FrontDoorStructs.Candidate(msg.sender, email,0,false);
+    FrontDoorStructs.Candidate memory candidate = FrontDoorStructs.Candidate(msg.sender, email,0,false,0);
     candidateList[msg.sender] = candidate;
   } 
     
@@ -161,7 +162,7 @@ contract Recruitment  is Ownable , ReentrancyGuard {
   function registerJob(uint256 bounty) external payable nonReentrant checkIfItisACompany(msg.sender) returns(uint256) {
     uint256 jobId = jobIdCounter;
     require(bounty > 0 , "Bounty should be greater than 0"); // check if company is giving bounty or not
-    FrontDoorStructs.Job memory job = FrontDoorStructs.Job(jobId, bounty, false, msg.sender,false,0);
+    FrontDoorStructs.Job memory job = FrontDoorStructs.Job(jobId, bounty, false, msg.sender,false,0,block.timestamp);
     jobList[jobId] = job;
     jobIdCounter++;
     companyList[msg.sender].jobsCreated++;
@@ -269,6 +270,48 @@ contract Recruitment  is Ownable , ReentrancyGuard {
     return keccak256(abi.encodePacked(score, msg.sender, companyAddress));
   }
 
+
+// ==========================================================================================================
+  /**
+   * 
+   * @param _candidateAddress Address of candidate
+   * @param _jobId Job id which referr is referring too
+   * @notice Refer a candidate to a job
+   */
+  function ReferCandidate(address _candidateAddress , uint256 _jobId) nonReentrant public  {
+    // --- Simple  Checks
+    require(_candidateAddress != address(0) , "Candidate address should not be empty"); // check if candidate address is empty or not
+    require(_jobId > 0 , "Job Id should be greater than 0"); // check if job id is greater than 0 or not
+    require(_jobId < jobIdCounter , "Job Id should be less than job id counter"); // check if job id is less than job id counter or not
+    require(jobList[_jobId].timeAtWhichJobCreated + 30 days > block.timestamp , "Job is expired"); // check if job is expired or not
+
+    // Check if the referrer has already referred the candidate for the specified job
+    for (uint256 i = 0; i < referralIndex[msg.sender].length; i++) {
+        uint256 referralId = referralIndex[msg.sender][i];
+        FrontDoorStructs.Referral memory existingReferral = referralList[referralId];
+        if (existingReferral.referrer.wallet == msg.sender && existingReferral.job.id == _jobId) {
+            revert Errors.SameCandidateCannotBeReferredTwice();
+        }
+    }
+
+  // ---- Code logic 
+    FrontDoorStructs.Referee memory referee = refereeList[_candidateAddress];
+    FrontDoorStructs.Job memory job = jobList[_jobId];
+    FrontDoorStructs.Referrer memory referrer = referrerList[msg.sender];
+    FrontDoorStructs.Referral memory referral = FrontDoorStructs.Referral(referralCounter, false, referrer, referee, job,block.timestamp,0);
+    referralIndex[msg.sender].push(referralCounter);
+    referralList[referralCounter] = referral;
+    referralCounter++;
+
+    emit ReferCandidateSuccess(msg.sender,_candidateAddress,_jobId); // emit event
+
+  }
+
+
+  function hireCandidate() external{}
+
+
+
   /* *  -----------------------------          Set Data/Var Functions          ----------------------------- */
 
 
@@ -366,29 +409,5 @@ contract Recruitment  is Ownable , ReentrancyGuard {
     }
     return jobArray;
   }
-
- /**
-     * @notice Get the latest price of ETH / USD
-     * @return Returns the latest value of collateral(which is in ETH) in terms of USD
-     * @dev Returns the latest value of USD when passed eth 
-     */
-    function getLatestData(uint256 usdAmount) public view returns (uint256) {
-        AggregatorV3Interface datafeed = AggregatorV3Interface(
-            0x694AA1769357215DE4FAC081bf1f309aDC325306
-        );
-        (
-            /* uint80 roundID */,
-            int answer,
-            /*uint startedAt*/,
-            /*uint timeStamp*/,
-            /*uint80 answeredInRound*/
-        ) = datafeed.latestRoundData();
-
-        // Calculate ETH amount from USD value
-        uint256 ethAmount = (usdAmount * 1e18) / uint256(answer);
-
-        // Round down to the nearest integer (1824)
-        return ethAmount; 
-    }
 
  }
